@@ -1,0 +1,152 @@
+<script src="./all_data.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.26.0.min.js" charset="utf-8"></script>
+
+<ul id="menu"></ul>
+
+<hr />
+<div id="likes"></div>
+<hr />
+<div id="views"></div>
+<hr />
+<div id="retweets"></div>
+<hr />
+<div id="quotes"></div>
+<hr />
+<div id="replies"></div>
+<hr />
+<div id="bookmarks"></div>
+<hr />
+<div id="likes per 1000 views"></div>
+
+<script type="module">
+  const data =
+    allData.find(({ tweet }) => "?" + tweet.rest_id === location.search) ??
+    allData[0];
+
+  document.getElementById("menu").innerHTML = allData
+    .map(({ tweet, data: data_ }) => {
+      const id = tweet.rest_id;
+      const user = tweet.core.user_results.result.legacy.screen_name;
+      const created = new Date(tweet.legacy.created_at);
+      const name = `@${user} at ${created.toLocaleDateString()}`;
+
+      const time = Math.round(
+        (data_.at(-1)[0] - data_.at(0)[0]) / 1000 / 60 / 60
+      );
+
+      return `<li>${
+        id === data.tweet.rest_id ? `<b>${name}</b>` : name
+      } <a href="?${id}">${time}h tracked</a> <a href="https://twitter.com/${user}/status/${id}" target="_blank">open</a></li>`;
+    })
+    .join("");
+
+  const tracks = [
+    "likes",
+    "retweets",
+    "quotes",
+    "replies",
+    "bookmarks",
+    "views",
+  ];
+
+  const renderChart = (data, track, getValue) => {
+    const timestamps = data.map(([ts]) => ts);
+    const range = [timestamps.at(0), timestamps.at(-1)];
+    const values = data.map(getValue);
+
+    const fixedPeriod = 1000 * 60 * 15;
+    const withFixedPeriod = [];
+    let iLow = 0;
+    let iHigh = 1;
+    for (let t = range[0]; t < range[1]; t += fixedPeriod) {
+      while (timestamps[iHigh] < t) {
+        iLow++;
+        iHigh++;
+      }
+      const valueDiff = values[iHigh] - values[iLow];
+      const timeDiff = timestamps[iHigh] - timestamps[iLow];
+      const interpolatedValue =
+        values[iLow] + (t - timestamps[iLow]) * (valueDiff / timeDiff);
+      withFixedPeriod.push([t, interpolatedValue]);
+    }
+
+    Plotly.newPlot(
+      track,
+      [
+        {
+          type: "scatter",
+          mode: "lines+markers",
+          marker: { size: 2 },
+          line: { width: 1 },
+          name: track,
+          x: timestamps,
+          y: values,
+          hovertext: timestamps.map((x) => new Date(x).toLocaleString()),
+          hoverinfo: "text+y+name",
+        },
+        {
+          type: "scatter",
+          mode: "line",
+          line: { width: 1 },
+          marker: { size: 2 },
+          name: "change",
+          x: withFixedPeriod.map(([t]) => t).slice(1),
+          y: withFixedPeriod
+            .map(([, y], i) => (i === 0 ? 0 : y - withFixedPeriod[i - 1][1]))
+            .slice(1),
+          yaxis: "y2",
+          opacity: 0.7,
+          hovertext: withFixedPeriod
+            .map(([x]) => new Date(x).toLocaleString())
+            .slice(1),
+          hoverinfo: "text+y+name",
+        },
+      ],
+      {
+        title: `${track} over time`,
+        xaxis: {
+          autorange: true,
+          range,
+          rangeselector: {
+            buttons: [
+              { count: 1, label: "1h", step: "hour", stepmode: "backward" },
+              { count: 6, label: "6h", step: "hour", stepmode: "backward" },
+              { count: 12, label: "12h", step: "hour", stepmode: "backward" },
+              { count: 1, label: "1d", step: "day", stepmode: "backward" },
+              { count: 2, label: "2d", step: "day", stepmode: "backward" },
+              { count: 3, label: "3d", step: "day", stepmode: "backward" },
+              { step: "all" },
+            ],
+          },
+          // rangeslider: { range },
+          type: "date",
+        },
+        yaxis: { autorange: true, type: "linear", title: track },
+        yaxis2: {
+          autorange: true,
+          title: "change over 15 minutes",
+          overlaying: "y",
+          side: "right",
+          showgrid: false,
+          // type: "log",
+          // zeroline: false,
+        },
+      }
+    );
+  };
+
+  const renderData = (data) => {
+    for (const track of tracks) {
+      const index = tracks.indexOf(track);
+      renderChart(data, track, (arr) => arr[index + 1]);
+    }
+
+    renderChart(
+      data,
+      "likes per 1000 views",
+      ([, likes, , , , , views]) => likes / (views / 1000)
+    );
+  };
+
+  renderData(data.data);
+</script>
